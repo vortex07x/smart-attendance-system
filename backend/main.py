@@ -34,9 +34,9 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",  # Local development
-        "https://*.vercel.app",    # All Vercel preview URLs
-        "https://your-vercel-url.vercel.app"  # Your specific Vercel URL (update after deployment)
+        "http://localhost:3000",
+        "https://smart-attendance-system-cyan.vercel.app",
+        "https://*.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],

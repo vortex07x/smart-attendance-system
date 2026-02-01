@@ -40,7 +40,7 @@ function Register() {
       formData.append('photo', blob, 'photo.jpg');
 
       setCurrentStep('Extracting facial features...');
-      const response = await axios.post('http://127.0.0.1:8000/register-student', formData);
+      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com//register-student', formData);
       
       if (response.data.status === 'success') {
         setCurrentStep('Registration complete');
