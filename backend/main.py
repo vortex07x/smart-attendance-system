@@ -33,7 +33,11 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",  # Local development
+        "https://*.vercel.app",    # All Vercel preview URLs
+        "https://your-vercel-url.vercel.app"  # Your specific Vercel URL (update after deployment)
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1434,4 +1438,5 @@ async def clear_all_attendance(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    port = int(os.getenv("PORT", 8000))  # Render provides PORT env variable
+    uvicorn.run(app, host="0.0.0.0", port=port)
