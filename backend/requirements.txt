@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+python-multipart
+pillow
+opencv-python
+numpy
+deepface
+tf-keras
+tensorflow
+pandas
+openpyxl
+xlsxwriter
+python-dotenv
