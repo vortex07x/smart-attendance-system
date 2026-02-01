@@ -22,7 +22,7 @@ function CalendarModal({ isOpen, onClose, adminData }) {
     if (!isAdmin) return;
 
     try {
-      const response = await axios.get(`http://127.0.0.1:8000/holidays/${adminData.institute_id}`);
+      const response = await axios.get(`https://smart-attendance-backend-f3my.onrender.com//holidays/${adminData.institute_id}`);
       if (response.data.status === 'success') {
         setHolidays(response.data.data);
       }
@@ -93,7 +93,7 @@ function CalendarModal({ isOpen, onClose, adminData }) {
         formData.append('reason', reason);
       }
 
-      const response = await axios.post('http://127.0.0.1:8000/admin/toggle-holiday', formData);
+      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com//admin/toggle-holiday', formData);
       
       if (response.data.status === 'success') {
         setMessage('success:' + response.data.message);
