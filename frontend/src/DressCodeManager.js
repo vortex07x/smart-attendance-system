@@ -18,7 +18,7 @@ function DressCodeManager({ adminData }) {
 
   const fetchDressCodes = async () => {
     try {
-      const response = await axios.get(`https://smart-attendance-backend-f3my.onrender.com//admin/dress-codes/${adminData.institute_id}`);
+      const response = await axios.get(`https://smart-attendance-backend-f3my.onrender.com/admin/dress-codes/${adminData.institute_id}`);
       
       if (response.data.status === 'success') {
         setDressCodes(response.data.data || []);
@@ -54,7 +54,7 @@ function DressCodeManager({ adminData }) {
       formData.append('dress_type', dressType);
       formData.append('photo', selectedFile);
 
-      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com//admin/dress-code/upload', formData);
+      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com/admin/dress-code/upload', formData);
 
       if (response.data.status === 'success') {
         setProcessStep('Upload complete');
@@ -80,7 +80,7 @@ function DressCodeManager({ adminData }) {
     }
 
     try {
-      const response = await axios.delete(`https://smart-attendance-backend-f3my.onrender.com//admin/dress-code/${dressCodeId}`);
+      const response = await axios.delete(`https://smart-attendance-backend-f3my.onrender.com/admin/dress-code/${dressCodeId}`);
       
       if (response.data.status === 'success') {
         toast.success('Dress code deleted successfully!');

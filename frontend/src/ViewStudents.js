@@ -14,7 +14,7 @@ function ViewStudents({ adminData }) {
 
   const fetchStudents = async () => {
     try {
-      const response = await axios.get(`https://smart-attendance-backend-f3my.onrender.com//admin/students/${adminData.institute_id}`);
+      const response = await axios.get(`https://smart-attendance-backend-f3my.onrender.com/admin/students/${adminData.institute_id}`);
       
       if (response.data.status === 'success') {
         setStudents(response.data.data || []);

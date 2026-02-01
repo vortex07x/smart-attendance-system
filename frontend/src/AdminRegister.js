@@ -32,7 +32,7 @@ function AdminRegister() {
       formData.append('password', password);
       formData.append('institute_name', instituteName);
 
-      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com//admin/register', formData);
+      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com/admin/register', formData);
 
       if (response.data.status === 'success') {
         toast.success(response.data.message);

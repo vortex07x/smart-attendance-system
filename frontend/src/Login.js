@@ -16,7 +16,7 @@ function Login({ onLogin }) {
       formData.append('email', email);
       formData.append('password', password);
 
-      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com//admin/login', formData);
+      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com/admin/login', formData);
 
       if (response.data.status === 'success') {
         toast.success('Login successful! Redirecting...');

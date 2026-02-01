@@ -21,7 +21,7 @@ function ForgotPassword() {
       const formData = new FormData();
       formData.append('email', email);
 
-      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com//admin/send-otp', formData);
+      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com/admin/send-otp', formData);
 
       if (response.data.status === 'success') {
         setMessage('success:' + response.data.message);
@@ -50,7 +50,7 @@ function ForgotPassword() {
       formData.append('email', email);
       formData.append('otp', otp);
 
-      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com//admin/verify-otp', formData);
+      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com/admin/verify-otp', formData);
 
       if (response.data.status === 'success') {
         setMessage('success:OTP verified successfully!');
@@ -92,7 +92,7 @@ function ForgotPassword() {
       formData.append('otp', otp);
       formData.append('new_password', newPassword);
 
-      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com//admin/reset-password-with-otp', formData);
+      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com/admin/reset-password-with-otp', formData);
 
       if (response.data.status === 'success') {
         setMessage('success:' + response.data.message);

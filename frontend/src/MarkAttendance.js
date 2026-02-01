@@ -25,7 +25,7 @@ function MarkAttendance() {
   const checkHolidayStatus = async () => {
     setCheckingHoliday(true);
     try {
-      const response = await axios.get(`https://smart-attendance-backend-f3my.onrender.com//check-holiday/${instituteName}`);
+      const response = await axios.get(`https://smart-attendance-backend-f3my.onrender.com/check-holiday/${instituteName}`);
       if (response.data.status === 'success') {
         setHolidayStatus(response.data);
       }
@@ -74,7 +74,7 @@ function MarkAttendance() {
       formData.append('photo', blob, 'attendance.jpg');
 
       setCurrentStep('Matching facial features...');
-      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com//mark-attendance', formData);
+      const response = await axios.post('https://smart-attendance-backend-f3my.onrender.com/mark-attendance', formData);
       
       if (response.data.status === 'success') {
         setCurrentStep('Verifying dress code...');
