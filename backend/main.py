@@ -28,6 +28,19 @@ from deepface import DeepFace
 
 load_dotenv()
 
+print("[INFO] Pre-loading DeepFace Facenet model...")
+try:
+    # This will download and cache the model once
+    from deepface.commons import functions
+    functions.initialize_folder()
+    
+    # Load the model into memory
+    DeepFace.build_model("Facenet")
+    print("[INFO] ✅ Facenet model loaded successfully!")
+except Exception as e:
+    print(f"[WARNING] Model pre-load failed: {e}")
+    print("[INFO] Model will be loaded on first use")
+
 app = FastAPI()
 
 app.add_middleware(
