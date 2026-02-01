@@ -22,6 +22,7 @@ from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
+from fastapi import Request
 
 from database import get_db, Student, Attendance, Admin, Institute, DressCode, PasswordResetToken, Holiday
 from deepface import DeepFace
@@ -429,8 +430,8 @@ def verify_dress_code(student_photo_bytes, dress_codes, db: Session):
 def read_root():
     return {"message": "Smart Attendance System Backend - Optimized with Brevo API"}
 
-@app.get("/test")
-def test():
+@app.api_route("/test", methods=["GET", "HEAD"])
+def test(request: Request):
     return {"status": "success", "data": "API connected successfully!"}
 
 @app.post("/register-student")
