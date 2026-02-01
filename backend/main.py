@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Form, Depends, HTTPException, status
+from fastapi import FastAPI, File, UploadFile, Form, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy.orm import Session
@@ -22,7 +22,6 @@ from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
-from fastapi import Request
 
 from database import get_db, Student, Attendance, Admin, Institute, DressCode, PasswordResetToken, Holiday
 from deepface import DeepFace
