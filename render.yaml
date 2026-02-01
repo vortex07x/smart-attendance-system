@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: smart-attendance-backend
+    env: python
+    region: oregon
+    plan: free
+    branch: main
+    rootDir: backend
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py"
