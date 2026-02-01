@@ -36,7 +36,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://smart-attendance-system-cyan.vercel.app",
-        "https://*.vercel.app"
+        # "https://*.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
