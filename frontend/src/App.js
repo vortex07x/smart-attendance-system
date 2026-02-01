@@ -11,6 +11,7 @@ import ViewStudents from './ViewStudents';
 import ViewAttendance from './ViewAttendance';
 import DressCodeManager from './DressCodeManager';
 import CalendarModal from './CalendarModal';
+import WarmupButton from './WarmupButton';
 import './App.css';
 
 function App() {
@@ -281,6 +282,9 @@ function App() {
           📅
         </button>
       )}
+
+      {/* Floating Warmup Button - NEW! */}
+      <WarmupButton />
 
       {/* Calendar Modal */}
       <CalendarModal
