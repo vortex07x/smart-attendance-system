@@ -433,54 +433,6 @@ def read_root():
 def test(request: Request):
     return {"status": "success", "data": "API connected successfully!"}
 
-@app.post("/admin/warmup")
-async def warmup_system(db: Session = Depends(get_db)):
-    """
-    Warmup endpoint to pre-load the DeepFace model.
-    Creates a dummy image and triggers face encoding extraction.
-    This forces the model to download and cache, making subsequent 
-    attendance marking instant.
-    """
-    try:
-        print("\n[INFO] 🔥 === SYSTEM WARMUP TRIGGERED ===")
-        
-        # Create a dummy image (100x100 pixels, solid color)
-        dummy_image = np.zeros((100, 100, 3), dtype=np.uint8)
-        dummy_image[:] = (128, 128, 128)  # Gray color
-        
-        # Convert to JPEG bytes
-        success, buffer = cv2.imencode('.jpg', dummy_image)
-        dummy_bytes = buffer.tobytes()
-        
-        print("[INFO] Dummy image created, triggering model load...")
-        
-        # This will trigger the model download if not cached
-        try:
-            extract_face_encoding(dummy_bytes)
-            print("[INFO] ✅ Model loaded successfully!")
-        except Exception as e:
-            # Face detection will fail on dummy image, but model will be loaded
-            print(f"[INFO] Model loaded (face detection failed as expected: {str(e)[:50]})")
-        
-        print("[INFO] 🔥 === WARMUP COMPLETE ===\n")
-        
-        return {
-            "status": "success",
-            "message": "System warmed up successfully! Face recognition is now ready.",
-            "details": {
-                "model": "Facenet",
-                "status": "cached",
-                "ready": True
-            }
-        }
-        
-    except Exception as e:
-        print(f"[ERROR] Warmup failed: {str(e)}")
-        return {
-            "status": "error",
-            "message": f"Warmup failed: {str(e)}"
-        }
-
 @app.post("/register-student")
 async def register_student(
     name: str = Form(...),
