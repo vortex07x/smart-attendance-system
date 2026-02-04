@@ -2,18 +2,14 @@ from fastapi import FastAPI, File, UploadFile, Form, Depends, HTTPException, sta
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy.orm import Session
-from PIL import Image
 import io
 import json
 import base64
 from datetime import datetime, date, timedelta
 from typing import List, Optional
-import numpy as np
-import cv2
 import secrets
 import hashlib
 import os
-import tempfile
 import random
 import string
 import pandas as pd
@@ -22,24 +18,11 @@ from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
+import httpx
 
 from database import get_db, Student, Attendance, Admin, Institute, DressCode, PasswordResetToken, Holiday
-from deepface import DeepFace
 
 load_dotenv()
-
-print("[INFO] Pre-loading DeepFace Facenet model...")
-try:
-    # This will download and cache the model once
-    from deepface.commons import functions
-    functions.initialize_folder()
-    
-    # Load the model into memory
-    DeepFace.build_model("Facenet")
-    print("[INFO] ✅ Facenet model loaded successfully!")
-except Exception as e:
-    print(f"[WARNING] Model pre-load failed: {e}")
-    print("[INFO] Model will be loaded on first use")
 
 app = FastAPI()
 
@@ -60,16 +43,176 @@ async def options_handler(full_path: str):
 
 security = HTTPBasic()
 
-# OTP Configuration
+# Configuration
 OTP_EXPIRE_MINUTES = 10
-
-# Brevo API Configuration
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "ecommtest07@gmail.com")
 SENDER_NAME = os.getenv("SENDER_NAME", "Smart Attendance System")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+ML_SERVICE_URL = os.getenv("ML_SERVICE_URL", "https://unkillableronin-smart-attendance-ml.hf.space")
 
-# Helper Functions
+# ========== ML SERVICE CLIENT ==========
+
+async def call_ml_service(endpoint: str, data: dict) -> dict:
+    """Call ML service on Hugging Face"""
+    try:
+        print(f"[DEBUG] Calling ML service: {endpoint}")
+        
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{ML_SERVICE_URL}{endpoint}",
+                json=data
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            print(f"[DEBUG] ML service response: {result.get('status', 'unknown')}")
+            return result
+            
+    except httpx.TimeoutException:
+        print(f"[ERROR] ML service timeout")
+        raise HTTPException(
+            status_code=504,
+            detail="ML service is taking too long. Please try again."
+        )
+    except httpx.HTTPError as e:
+        print(f"[ERROR] ML service HTTP error: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="ML service is currently unavailable. Please try again later."
+        )
+    except Exception as e:
+        print(f"[ERROR] ML service error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"ML service error: {str(e)}"
+        )
+
+async def extract_face_encoding(image_bytes: bytes) -> str:
+    """Extract face encoding via ML service"""
+    try:
+        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        
+        result = await call_ml_service("/extract-face", {
+            "image_base64": image_base64
+        })
+        
+        if result["status"] == "error":
+            raise Exception(result["message"])
+        
+        return result["face_encoding"]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Face extraction failed: {str(e)}")
+        raise Exception(f"Face detection failed: {str(e)}")
+
+async def compare_faces(encoding1_str: str, encoding2_str: str, threshold: float = 0.6) -> tuple:
+    """Compare two face encodings via ML service"""
+    try:
+        result = await call_ml_service("/compare-faces", {
+            "encoding1": encoding1_str,
+            "encoding2": encoding2_str,
+            "threshold": threshold
+        })
+        
+        if result["status"] == "error":
+            return False, 999
+        
+        return result["is_match"], result["distance"]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Face comparison failed: {str(e)}")
+        return False, 999
+
+async def extract_clothing_features(image_bytes: bytes) -> dict:
+    """Extract clothing features via ML service"""
+    try:
+        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        
+        result = await call_ml_service("/extract-clothing", {
+            "image_base64": image_base64
+        })
+        
+        if result["status"] == "error":
+            raise Exception(result["message"])
+        
+        return result["features"]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Clothing extraction failed: {str(e)}")
+        raise Exception(f"Clothing feature extraction failed: {str(e)}")
+
+async def compare_clothing(student_features: dict, reference_features: dict, threshold: float = 0.6) -> tuple:
+    """Compare clothing features via ML service"""
+    try:
+        result = await call_ml_service("/compare-clothing", {
+            "student_features": student_features,
+            "reference_features": reference_features,
+            "threshold": threshold
+        })
+        
+        if result["status"] == "error":
+            return False, 0.0
+        
+        return result["is_match"], result["similarity"]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Clothing comparison failed: {str(e)}")
+        return False, 0.0
+
+async def verify_dress_code(student_photo_bytes: bytes, dress_codes, db: Session) -> tuple:
+    """Verify dress code compliance via ML service"""
+    try:
+        if not dress_codes or len(dress_codes) == 0:
+            print("[DEBUG] No dress codes defined - auto-passing")
+            return True, {"message": "No dress code requirements", "items": []}
+        
+        print(f"[DEBUG] Checking {len(dress_codes)} dress code items")
+        
+        student_features = await extract_clothing_features(student_photo_bytes)
+        
+        verification_results = []
+        all_matched = True
+        
+        for dress_code in dress_codes:
+            reference_bytes = base64.b64decode(dress_code.image_data)
+            reference_features = await extract_clothing_features(reference_bytes)
+            
+            is_match, similarity = await compare_clothing(student_features, reference_features, threshold=0.6)
+            
+            verification_results.append({
+                "dress_type": dress_code.dress_type,
+                "matched": bool(is_match),
+                "confidence": f"{similarity * 100:.1f}%",
+                "similarity_score": float(similarity)
+            })
+            
+            if not is_match:
+                all_matched = False
+        
+        return all_matched, {
+            "all_items_matched": all_matched,
+            "items": verification_results,
+            "total_items": len(dress_codes),
+            "matched_items": sum(1 for item in verification_results if item["matched"])
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Dress code verification error: {str(e)}")
+        return True, {"error": str(e), "message": "Dress code check skipped due to error"}
+
+# ========== HELPER FUNCTIONS ==========
+
 def hash_password(password: str) -> str:
     """Hash password using SHA256"""
     return hashlib.sha256(password.encode()).hexdigest()
@@ -83,14 +226,11 @@ def send_otp_email_via_brevo(to_email: str, otp: str, admin_name: str):
     try:
         print(f"[DEBUG] Preparing to send OTP via Brevo API to: {to_email}")
         
-        # Configure Brevo API
         configuration = sib_api_v3_sdk.Configuration()
         configuration.api_key['api-key'] = BREVO_API_KEY
         
-        # Create API instance
         api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
         
-        # HTML content for email
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -196,7 +336,6 @@ def send_otp_email_via_brevo(to_email: str, otp: str, admin_name: str):
         </html>
         """
         
-        # Create email object
         send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
             to=[{"email": to_email, "name": admin_name}],
             sender={"name": SENDER_NAME, "email": SENDER_EMAIL},
@@ -204,7 +343,6 @@ def send_otp_email_via_brevo(to_email: str, otp: str, admin_name: str):
             html_content=html_content
         )
         
-        # Send email via Brevo API
         print(f"[DEBUG] Sending email via Brevo API...")
         api_response = api_instance.send_transac_email(send_smtp_email)
         print(f"[DEBUG] Brevo API Response: {api_response}")
@@ -221,213 +359,15 @@ def send_otp_email_via_brevo(to_email: str, otp: str, admin_name: str):
         traceback.print_exc()
         return False
 
-def extract_face_encoding(image_bytes):
-    """Extract face encoding using DeepFace - MEMORY OPTIMIZED"""
-    try:
-        # Convert bytes to numpy array
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        # Resize image to reduce memory usage (optional)
-        max_dimension = 640
-        height, width = img.shape[:2]
-        if max(height, width) > max_dimension:
-            scale = max_dimension / max(height, width)
-            new_width = int(width * scale)
-            new_height = int(height * scale)
-            img = cv2.resize(img, (new_width, new_height))
-        
-        print(f"[DEBUG] Image shape: {img.shape}")
-        
-        # Extract face embedding
-        embedding = DeepFace.represent(
-            img_path=img,
-            model_name="Facenet",
-            enforce_detection=True,
-            detector_backend="opencv"  # Faster, less memory
-        )
-        
-        print(f"[DEBUG] Face encoding extracted, length: {len(embedding[0]['embedding'])}")
-        
-        # Clean up
-        del img
-        del nparr
-        
-        return json.dumps(embedding[0]["embedding"])
-        
-    except Exception as e:
-        print(f"[ERROR] Face detection failed: {str(e)}")
-        raise Exception(f"Face detection failed: {str(e)}")
-
-def compare_faces(encoding1_str, encoding2_str, threshold=0.6):
-    """Compare two face encodings using COSINE SIMILARITY"""
-    try:
-        enc1 = np.array(json.loads(encoding1_str))
-        enc2 = np.array(json.loads(encoding2_str))
-        
-        from numpy.linalg import norm
-        
-        cosine_similarity = np.dot(enc1, enc2) / (norm(enc1) * norm(enc2))
-        cosine_distance = 1 - cosine_similarity
-        
-        print(f"[DEBUG] Face comparison - Distance: {cosine_distance:.4f}, Similarity: {cosine_similarity:.4f}")
-        
-        is_match = cosine_distance < threshold
-        
-        # Clean up
-        del enc1
-        del enc2
-        
-        return is_match, cosine_distance
-        
-    except Exception as e:
-        print(f"[ERROR] Face comparison failed: {str(e)}")
-        return False, 999
-
-def extract_clothing_features(image_bytes):
-    """Extract clothing features - MEMORY OPTIMIZED"""
-    try:
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        # Resize to fixed size to reduce memory
-        img = cv2.resize(img, (224, 224))
-        height = img.shape[0]
-        upper_body = img[0:int(height * 0.6), :]
-        
-        hsv = cv2.cvtColor(upper_body, cv2.COLOR_BGR2HSV)
-        
-        # Calculate histograms
-        hist_h = cv2.calcHist([hsv], [0], None, [180], [0, 180])
-        hist_s = cv2.calcHist([hsv], [1], None, [256], [0, 256])
-        hist_v = cv2.calcHist([hsv], [2], None, [256], [0, 256])
-        
-        hist_h = cv2.normalize(hist_h, hist_h).flatten()
-        hist_s = cv2.normalize(hist_s, hist_s).flatten()
-        hist_v = cv2.normalize(hist_v, hist_v).flatten()
-        
-        color_features = np.concatenate([hist_h, hist_s, hist_v])
-        
-        # Edge detection
-        gray = cv2.cvtColor(upper_body, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 50, 150)
-        edge_density = np.sum(edges) / edges.size
-        
-        # Dominant colors using k-means
-        pixels = upper_body.reshape(-1, 3)
-        pixels = np.float32(pixels)
-        
-        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
-        k = 3
-        _, labels, centers = cv2.kmeans(pixels, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
-        
-        dominant_colors = centers.astype(int)
-        
-        result = {
-            'color_histogram': color_features.tolist(),
-            'edge_density': float(edge_density),
-            'dominant_colors': dominant_colors.tolist()
-        }
-        
-        # Clean up
-        del img, nparr, upper_body, hsv, gray, edges, pixels
-        
-        return result
-        
-    except Exception as e:
-        print(f"[ERROR] Clothing feature extraction failed: {str(e)}")
-        raise Exception(f"Clothing feature extraction failed: {str(e)}")
-
-def compare_clothing(student_features, reference_features, threshold=0.6):
-    """Compare clothing features"""
-    try:
-        student_hist = np.array(student_features['color_histogram'])
-        reference_hist = np.array(reference_features['color_histogram'])
-        
-        color_similarity = cv2.compareHist(
-            student_hist.astype(np.float32).reshape(-1, 1),
-            reference_hist.astype(np.float32).reshape(-1, 1),
-            cv2.HISTCMP_CORREL
-        )
-        
-        color_similarity = (color_similarity + 1) / 2
-        
-        student_colors = np.array(student_features['dominant_colors'])
-        reference_colors = np.array(reference_features['dominant_colors'])
-        
-        color_distances = []
-        for sc in student_colors:
-            min_dist = min([np.linalg.norm(sc - rc) for rc in reference_colors])
-            color_distances.append(min_dist)
-        
-        avg_color_distance = np.mean(color_distances) / 255.0
-        color_match = 1 - min(avg_color_distance, 1.0)
-        
-        edge_diff = abs(student_features['edge_density'] - reference_features['edge_density'])
-        edge_similarity = 1 - min(edge_diff, 1.0)
-        
-        overall_similarity = (
-            color_similarity * 0.5 +
-            color_match * 0.4 +
-            edge_similarity * 0.1
-        )
-        
-        is_match = overall_similarity >= threshold
-        
-        print(f"[DEBUG] Dress code comparison - Similarity: {overall_similarity:.4f}")
-        
-        return is_match, overall_similarity
-        
-    except Exception as e:
-        print(f"[ERROR] Clothing comparison error: {str(e)}")
-        return False, 0.0
-
-def verify_dress_code(student_photo_bytes, dress_codes, db: Session):
-    """Verify dress code compliance"""
-    try:
-        if not dress_codes or len(dress_codes) == 0:
-            print("[DEBUG] No dress codes defined - auto-passing")
-            return True, {"message": "No dress code requirements", "items": []}
-        
-        print(f"[DEBUG] Checking {len(dress_codes)} dress code items")
-        
-        student_features = extract_clothing_features(student_photo_bytes)
-        
-        verification_results = []
-        all_matched = True
-        
-        for dress_code in dress_codes:
-            reference_bytes = base64.b64decode(dress_code.image_data)
-            reference_features = extract_clothing_features(reference_bytes)
-            
-            is_match, similarity = compare_clothing(student_features, reference_features, threshold=0.6)
-            
-            verification_results.append({
-                "dress_type": dress_code.dress_type,
-                "matched": bool(is_match),
-                "confidence": f"{similarity * 100:.1f}%",
-                "similarity_score": float(similarity)
-            })
-            
-            if not is_match:
-                all_matched = False
-        
-        return all_matched, {
-            "all_items_matched": all_matched,
-            "items": verification_results,
-            "total_items": len(dress_codes),
-            "matched_items": sum(1 for item in verification_results if item["matched"])
-        }
-        
-    except Exception as e:
-        print(f"[ERROR] Dress code verification error: {str(e)}")
-        return True, {"error": str(e), "message": "Dress code check skipped due to error"}
-
-# API Endpoints
+# ========== API ENDPOINTS ==========
 
 @app.get("/")
 def read_root():
-    return {"message": "Smart Attendance System Backend - Optimized with Brevo API"}
+    return {
+        "message": "Smart Attendance System Backend - Microservices Architecture",
+        "version": "2.0",
+        "ml_service": ML_SERVICE_URL
+    }
 
 @app.api_route("/test", methods=["GET", "HEAD"])
 def test(request: Request):
@@ -466,7 +406,8 @@ async def register_student(
                 "message": f"Student with roll number {roll_number} already exists!"
             }
         
-        face_encoding = extract_face_encoding(contents)
+        # Call ML service for face encoding
+        face_encoding = await extract_face_encoding(contents)
         
         new_student = Student(
             name=name,
@@ -491,6 +432,8 @@ async def register_student(
                 "roll_number": roll_number
             }
         }
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         print(f"[ERROR] Registration failed: {str(e)}")
@@ -573,7 +516,7 @@ async def admin_login(
         }
     }
 
-# ========== OTP-BASED PASSWORD RESET (BREVO API) ==========
+# ========== OTP-BASED PASSWORD RESET ==========
 
 @app.post("/admin/send-otp")
 async def send_otp(
@@ -596,17 +539,14 @@ async def send_otp(
         
         print(f"[DEBUG] Admin found: {admin.name}")
         
-        # Generate OTP
         otp = generate_otp()
         expires_at = datetime.utcnow() + timedelta(minutes=OTP_EXPIRE_MINUTES)
         
-        # Delete old OTPs
         db.query(PasswordResetToken).filter(
             PasswordResetToken.admin_id == admin.id,
             PasswordResetToken.used == False
         ).delete()
         
-        # Store OTP
         db_token = PasswordResetToken(
             admin_id=admin.id,
             token=otp,
@@ -617,7 +557,6 @@ async def send_otp(
         
         print(f"[DEBUG] OTP: {otp}, expires: {expires_at}")
         
-        # Send via Brevo API
         email_sent = send_otp_email_via_brevo(email, otp, admin.name)
         
         if not email_sent:
@@ -739,7 +678,6 @@ async def reset_password_with_otp(
                 "message": "Password must be at least 6 characters!"
             }
         
-        # Update password
         admin.password = hash_password(new_password)
         db_token.used = True
         
@@ -1024,7 +962,7 @@ async def mark_attendance(
     photo: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """Mark attendance - MEMORY OPTIMIZED"""
+    """Mark attendance - Microservices Version"""
     try:
         print(f"\n[DEBUG] === ATTENDANCE MARKING ===")
         
@@ -1061,8 +999,8 @@ async def mark_attendance(
                     "message": f"Today is {day_name}. Attendance disabled."
                 }
         
-        # Face recognition
-        current_encoding = extract_face_encoding(contents)
+        # Face recognition via ML service
+        current_encoding = await extract_face_encoding(contents)
         
         students = db.query(Student).filter(Student.institute_id == institute.id).all()
         
@@ -1070,7 +1008,7 @@ async def mark_attendance(
         best_match_distance = 999
         
         for student in students:
-            is_match, distance = compare_faces(student.face_encoding, current_encoding)
+            is_match, distance = await compare_faces(student.face_encoding, current_encoding)
             
             if is_match and distance < best_match_distance:
                 matched_student = student
@@ -1098,9 +1036,9 @@ async def mark_attendance(
                 }
             }
         
-        # Dress code check
+        # Dress code check via ML service
         dress_codes = db.query(DressCode).filter(DressCode.institute_id == institute.id).all()
-        dress_code_compliant, dress_code_details = verify_dress_code(contents, dress_codes, db)
+        dress_code_compliant, dress_code_details = await verify_dress_code(contents, dress_codes, db)
         
         status = "Present" if dress_code_compliant else "Present - Dress Code Violation"
         
@@ -1132,6 +1070,8 @@ async def mark_attendance(
             }
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         print(f"[ERROR] Attendance failed: {str(e)}")

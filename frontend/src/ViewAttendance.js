@@ -17,7 +17,7 @@ function ViewAttendance({ adminData }) {
   const fetchAttendance = async () => {
     setLoading(true);
     try {
-      const response = await axios.get(`https://smart-attendance-backend-f3my.onrender.com/admin/attendance/${adminData.institute_id}/today`);
+      const response = await axios.get(`${process.env.REACT_APP_API_URL}/admin/attendance/${adminData.institute_id}/today`);
       
       if (response.data.status === 'success') {
         setAttendance(response.data.data || []);
@@ -39,7 +39,7 @@ function ViewAttendance({ adminData }) {
     setClearing(true);
 
     try {
-      const response = await axios.delete(`https://smart-attendance-backend-f3my.onrender.com/admin/attendance/${adminData.institute_id}/clear`);
+      const response = await axios.delete(`${process.env.REACT_APP_API_URL}/admin/attendance/${adminData.institute_id}/clear`);
       
       if (response.data.status === 'success') {
         toast.success(response.data.message);
@@ -65,7 +65,7 @@ function ViewAttendance({ adminData }) {
       console.log('[DEBUG] Downloading Excel report...');
       
       const response = await axios.get(
-        `https://smart-attendance-backend-f3my.onrender.com/admin/export-attendance/${adminData.institute_id}`,
+        `${process.env.REACT_APP_API_URL}/admin/export-attendance/${adminData.institute_id}`,
         {
           responseType: 'blob',
         }

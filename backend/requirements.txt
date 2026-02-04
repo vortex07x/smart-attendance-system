@@ -4,13 +4,8 @@ python-multipart
 sqlalchemy
 psycopg2-binary
 python-dotenv
-pillow
-opencv-python-headless
-numpy
-deepface
-tensorflow
-tf-keras
 pandas
 openpyxl
 xlsxwriter
 sib-api-v3-sdk
+httpx

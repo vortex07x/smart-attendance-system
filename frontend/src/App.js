@@ -22,7 +22,7 @@ function App() {
 
   useEffect(() => {
     // Test backend connection
-    fetch('https://smart-attendance-backend-f3my.onrender.com/test')
+    fetch(`${process.env.REACT_APP_API_URL}/test`)
       .then(res => res.json())
       .then(data => {
         setConnected(true);
