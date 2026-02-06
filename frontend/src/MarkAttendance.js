@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import Webcam from 'react-webcam';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -11,30 +11,36 @@ function MarkAttendance() {
   const [attendanceData, setAttendanceData] = useState(null);
   const [currentStep, setCurrentStep] = useState('');
   const [holidayStatus, setHolidayStatus] = useState(null);
-  const [checkingHoliday, setCheckingHoliday] = useState(false);
-
-  // Check if today is a holiday whenever institute name changes
-  useEffect(() => {
-    if (instituteName.trim()) {
-      checkHolidayStatus();
-    } else {
-      setHolidayStatus(null);
-    }
-  }, [instituteName]);
+  const [checkingStatus, setCheckingStatus] = useState(false);
 
   const checkHolidayStatus = async () => {
-    setCheckingHoliday(true);
+    if (!instituteName.trim()) {
+      toast.error('Please enter your institute name first!');
+      return;
+    }
+
+    setCheckingStatus(true);
     try {
-      const response = await axios.get(`${process.env.REACT_APP_API_URL}/check-holiday/${encodeURIComponent(instituteName.trim())}`);
+      const response = await axios.get(
+        `${process.env.REACT_APP_API_URL}/check-holiday/${encodeURIComponent(instituteName.trim())}`
+      );
+      
       if (response.data.status === 'success') {
         setHolidayStatus(response.data);
         console.log('[DEBUG] Holiday status:', response.data);
+        
+        if (response.data.is_holiday) {
+          toast.warning(`Today is a holiday (${response.data.reason})`);
+        } else {
+          toast.success('Today is a working day. You can mark attendance!');
+        }
       }
     } catch (error) {
       console.error('Failed to check holiday status:', error);
+      toast.error('Failed to check status. Please try again.');
       setHolidayStatus(null);
     } finally {
-      setCheckingHoliday(false);
+      setCheckingStatus(false);
     }
   };
 
@@ -57,18 +63,15 @@ function MarkAttendance() {
       return;
     }
 
-    // RE-CHECK holiday status before submitting (in case it changed)
-    console.log('[DEBUG] Re-checking holiday status before attendance...');
-    try {
-      const recheckResponse = await axios.get(`${process.env.REACT_APP_API_URL}/check-holiday/${encodeURIComponent(instituteName.trim())}`);
-      
-      if (recheckResponse.data.status === 'success' && recheckResponse.data.is_holiday) {
-        toast.error(`Today is a holiday (${recheckResponse.data.reason}). Attendance marking is disabled.`);
-        setHolidayStatus(recheckResponse.data);
-        return;
-      }
-    } catch (error) {
-      console.error('Re-check failed:', error);
+    // Check status before allowing attendance
+    if (!holidayStatus) {
+      toast.error('Please check the status first using the "Check Status" button!');
+      return;
+    }
+
+    if (holidayStatus.is_holiday) {
+      toast.error(`Today is a holiday (${holidayStatus.reason}). Cannot mark attendance.`);
+      return;
     }
 
     setLoading(true);
@@ -238,25 +241,29 @@ function MarkAttendance() {
     );
   };
 
-  // Render holiday banner if today is a holiday
-  const renderHolidayBanner = () => {
+  // Render status badge
+  const renderStatusBadge = () => {
     if (!holidayStatus) return null;
 
     if (holidayStatus.is_holiday) {
       return (
-        <div className="alert alert-warning" style={{ marginBottom: '24px' }}>
-          <strong>🎉 Today is a holiday</strong> ({holidayStatus.reason})
-          <br />
-          <span style={{ fontSize: '14px' }}>Attendance marking is disabled for today.</span>
+        <div className="status-badge-container holiday-status">
+          <span className="status-icon">🎉</span>
+          <div className="status-text">
+            <div className="status-label">Holiday</div>
+            <div className="status-reason">{holidayStatus.reason}</div>
+          </div>
         </div>
       );
     }
 
     return (
-      <div className="alert alert-success" style={{ marginBottom: '24px' }}>
-        <strong>✅ Today is a working day</strong>
-        <br />
-        <span style={{ fontSize: '14px' }}>You can mark your attendance.</span>
+      <div className="status-badge-container working-status">
+        <span className="status-icon">✓</span>
+        <div className="status-text">
+          <div className="status-label">Working Day</div>
+          <div className="status-reason">You can mark attendance</div>
+        </div>
       </div>
     );
   };
@@ -267,30 +274,52 @@ function MarkAttendance() {
       <p style={{ color: 'var(--gray-700)', marginBottom: '32px' }}>
         Verify your identity through facial recognition and dress code compliance.
       </p>
-
-      {/* Holiday Status Banner */}
-      {instituteName.trim() && !checkingHoliday && renderHolidayBanner()}
       
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label>Institute Name</label>
-          <input
-            type="text"
-            placeholder="Enter your institute name (exact match required)"
-            value={instituteName}
-            onChange={(e) => setInstituteName(e.target.value)}
-            required
-            disabled={loading}
-          />
-          {checkingHoliday && (
-            <p className="form-hint" style={{ color: 'var(--primary-blue)', marginTop: '8px' }}>
-              Checking holiday status...
-            </p>
-          )}
+          <div className="institute-input-group">
+            <input
+              type="text"
+              placeholder="Enter your institute name"
+              value={instituteName}
+              onChange={(e) => {
+                setInstituteName(e.target.value);
+                setHolidayStatus(null); // Reset status when name changes
+              }}
+              required
+              disabled={loading}
+              className="institute-input"
+            />
+            <button
+              type="button"
+              onClick={checkHolidayStatus}
+              disabled={checkingStatus || loading || !instituteName.trim()}
+              className="btn btn-check-status"
+            >
+              {checkingStatus ? (
+                <>
+                  <span className="spinner-small"></span>
+                  Checking...
+                </>
+              ) : (
+                <>
+                  <span>📅</span>
+                  Check Status
+                </>
+              )}
+            </button>
+          </div>
+          <p className="form-hint">
+            Click "Check Status" to verify if today is a working day
+          </p>
         </div>
 
-        {/* Only show webcam if not a holiday */}
-        {(!holidayStatus || !holidayStatus.is_holiday) && (
+        {/* Status Badge Display */}
+        {holidayStatus && renderStatusBadge()}
+
+        {/* Only show webcam if status is checked and it's a working day */}
+        {holidayStatus && !holidayStatus.is_holiday && (
           <div className="form-group">
             <label>Facial Verification</label>
             <p className="form-hint">
@@ -317,9 +346,9 @@ function MarkAttendance() {
                   type="button"
                   onClick={capture}
                   className="btn btn-secondary"
-                  disabled={loading || !instituteName.trim()}
+                  disabled={loading}
                 >
-                  Capture for Verification
+                  📸 Capture for Verification
                 </button>
               ) : (
                 <>
@@ -329,18 +358,32 @@ function MarkAttendance() {
                     className="btn btn-secondary"
                     disabled={loading}
                   >
-                    Retake Photo
+                    🔄 Retake Photo
                   </button>
                   <button 
                     type="submit"
                     disabled={loading}
                     className="btn btn-primary"
                   >
-                    {loading ? 'Verifying...' : 'Mark Attendance'}
+                    {loading ? 'Verifying...' : '✓ Mark Attendance'}
                   </button>
                 </>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Show message when status not checked */}
+        {!holidayStatus && instituteName.trim() && (
+          <div className="alert alert-info" style={{ marginTop: '16px' }}>
+            <strong>ℹ️ Action Required:</strong> Please click "Check Status" button to verify if today is a working day before marking attendance.
+          </div>
+        )}
+
+        {/* Show message when it's a holiday */}
+        {holidayStatus && holidayStatus.is_holiday && (
+          <div className="alert alert-warning" style={{ marginTop: '16px' }}>
+            <strong>🎉 Holiday Notice:</strong> Attendance marking is disabled for today as it's marked as a holiday ({holidayStatus.reason}).
           </div>
         )}
       </form>
