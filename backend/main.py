@@ -705,26 +705,31 @@ async def check_if_holiday(
     institute_name: str,
     db: Session = Depends(get_db)
 ):
-    """Check if today is a holiday"""
+    """Check if today is a holiday - IMPROVED VERSION"""
     try:
         today = date.today()
         day_of_week = today.weekday()
         
+        # Find institute
         institute = db.query(Institute).filter(Institute.name == institute_name).first()
         if not institute:
+            # Institute not found - default to weekends only
+            is_weekend_default = day_of_week in [5, 6]
             return {
                 "status": "success",
-                "is_holiday": False,
-                "reason": "Institute not found",
+                "is_holiday": is_weekend_default,
+                "reason": "Weekend" if is_weekend_default else "Working day",
                 "date": today.isoformat(),
                 "is_custom": False
             }
         
+        # Check for custom holiday setting
         custom_holiday = db.query(Holiday).filter(
             Holiday.institute_id == institute.id,
             Holiday.date == today
         ).first()
         
+        # Custom override exists - use it
         if custom_holiday:
             return {
                 "status": "success",
@@ -734,16 +739,18 @@ async def check_if_holiday(
                 "is_custom": True
             }
         
+        # No custom override - check if weekend
         if day_of_week in [5, 6]:
             day_name = "Saturday" if day_of_week == 5 else "Sunday"
             return {
                 "status": "success",
                 "is_holiday": True,
-                "reason": f"Weekend ({day_name})",
+                "reason": day_name,
                 "date": today.isoformat(),
                 "is_custom": False
             }
         
+        # Regular working day
         return {
             "status": "success",
             "is_holiday": False,
@@ -756,7 +763,8 @@ async def check_if_holiday(
         print(f"[ERROR] Check holiday failed: {str(e)}")
         return {
             "status": "error",
-            "message": str(e)
+            "message": str(e),
+            "is_holiday": False
         }
 
 @app.get("/admin/students/{institute_id}")
