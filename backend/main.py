@@ -705,15 +705,22 @@ async def check_if_holiday(
     institute_name: str,
     db: Session = Depends(get_db)
 ):
-    """Check if today is a holiday - IMPROVED VERSION"""
+    """Check if today is a holiday - FIXED VERSION"""
     try:
         today = date.today()
         day_of_week = today.weekday()
         
-        # Find institute
-        institute = db.query(Institute).filter(Institute.name == institute_name).first()
+        print(f"\n[DEBUG] === CHECK HOLIDAY ===")
+        print(f"[DEBUG] Institute name: '{institute_name}'")
+        print(f"[DEBUG] Today: {today} ({['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][day_of_week]})")
+        
+        # Find institute (case-insensitive)
+        institute = db.query(Institute).filter(
+            Institute.name.ilike(institute_name.strip())
+        ).first()
+        
         if not institute:
-            # Institute not found - default to weekends only
+            print(f"[DEBUG] Institute not found - checking default weekend")
             is_weekend_default = day_of_week in [5, 6]
             return {
                 "status": "success",
@@ -723,14 +730,17 @@ async def check_if_holiday(
                 "is_custom": False
             }
         
+        print(f"[DEBUG] Institute found: ID={institute.id}, Name='{institute.name}'")
+        
         # Check for custom holiday setting
         custom_holiday = db.query(Holiday).filter(
             Holiday.institute_id == institute.id,
             Holiday.date == today
         ).first()
         
-        # Custom override exists - use it
+        # Custom override exists
         if custom_holiday:
+            print(f"[DEBUG] Custom holiday found: is_holiday={custom_holiday.is_holiday}, reason={custom_holiday.reason}")
             return {
                 "status": "success",
                 "is_holiday": custom_holiday.is_holiday,
@@ -742,6 +752,7 @@ async def check_if_holiday(
         # No custom override - check if weekend
         if day_of_week in [5, 6]:
             day_name = "Saturday" if day_of_week == 5 else "Sunday"
+            print(f"[DEBUG] Default weekend: {day_name}")
             return {
                 "status": "success",
                 "is_holiday": True,
@@ -751,6 +762,7 @@ async def check_if_holiday(
             }
         
         # Regular working day
+        print(f"[DEBUG] Regular working day")
         return {
             "status": "success",
             "is_holiday": False,
@@ -761,6 +773,8 @@ async def check_if_holiday(
         
     except Exception as e:
         print(f"[ERROR] Check holiday failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             "status": "error",
             "message": str(e),
@@ -970,22 +984,32 @@ async def mark_attendance(
     photo: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """Mark attendance - Microservices Version"""
+    """Mark attendance - FIXED VERSION"""
     try:
         print(f"\n[DEBUG] === ATTENDANCE MARKING ===")
+        print(f"[DEBUG] Institute name: '{institute_name}'")
         
         contents = await photo.read()
         
-        institute = db.query(Institute).filter(Institute.name == institute_name).first()
+        # Find institute (case-insensitive)
+        institute = db.query(Institute).filter(
+            Institute.name.ilike(institute_name.strip())
+        ).first()
+        
         if not institute:
+            print(f"[ERROR] Institute '{institute_name}' not found!")
             return {
                 "status": "error",
                 "message": f"Institute '{institute_name}' not found!"
             }
         
+        print(f"[DEBUG] Institute found: ID={institute.id}, Name='{institute.name}'")
+        
         # Holiday check
         today = date.today()
         day_of_week = today.weekday()
+        
+        print(f"[DEBUG] Checking holiday for: {today} ({['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][day_of_week]})")
         
         custom_holiday = db.query(Holiday).filter(
             Holiday.institute_id == institute.id,
@@ -993,19 +1017,25 @@ async def mark_attendance(
         ).first()
         
         if custom_holiday:
+            print(f"[DEBUG] Custom holiday record: is_holiday={custom_holiday.is_holiday}, reason={custom_holiday.reason}")
             if custom_holiday.is_holiday:
                 reason = custom_holiday.reason or "Holiday"
+                print(f"[ERROR] Today is a custom holiday: {reason}")
                 return {
                     "status": "error",
-                    "message": f"Today is a holiday ({reason})."
+                    "message": f"Today is a holiday ({reason}). Attendance marking is disabled."
                 }
         else:
+            # No custom record - check default weekend
             if day_of_week in [5, 6]:
                 day_name = "Saturday" if day_of_week == 5 else "Sunday"
+                print(f"[ERROR] Today is default weekend: {day_name}")
                 return {
                     "status": "error",
-                    "message": f"Today is {day_name}. Attendance disabled."
+                    "message": f"Today is {day_name}. Attendance marking is disabled."
                 }
+        
+        print(f"[DEBUG] Holiday check passed - proceeding with attendance")
         
         # Face recognition via ML service
         current_encoding = await extract_face_encoding(contents)
@@ -1040,6 +1070,7 @@ async def mark_attendance(
                 "message": f"Attendance already marked today!",
                 "data": {
                     "student": matched_student.name,
+                    "roll_number": matched_student.roll_number,
                     "time": existing.time.strftime("%H:%M:%S")
                 }
             }
@@ -1063,7 +1094,7 @@ async def mark_attendance(
         db.add(new_attendance)
         db.commit()
         
-        print(f"[DEBUG] Attendance marked: {status}")
+        print(f"[DEBUG] Attendance marked successfully: {status}")
         
         return {
             "status": "success",
@@ -1071,6 +1102,7 @@ async def mark_attendance(
             "data": {
                 "student": matched_student.name,
                 "roll_number": matched_student.roll_number,
+                "department": matched_student.department,
                 "match_confidence": f"{(1 - best_match_distance) * 100:.2f}%",
                 "status": status,
                 "dress_code_compliant": dress_code_compliant,
@@ -1083,9 +1115,11 @@ async def mark_attendance(
     except Exception as e:
         db.rollback()
         print(f"[ERROR] Attendance failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             "status": "error",
-            "message": f"Attendance failed: {str(e)}"
+            "message": f"Attendance marking failed: {str(e)}"
         }
 
 @app.get("/admin/export-attendance/{institute_id}")

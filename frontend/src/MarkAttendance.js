@@ -25,9 +25,10 @@ function MarkAttendance() {
   const checkHolidayStatus = async () => {
     setCheckingHoliday(true);
     try {
-      const response = await axios.get(`${process.env.REACT_APP_API_URL}/check-holiday/${instituteName}`);
+      const response = await axios.get(`${process.env.REACT_APP_API_URL}/check-holiday/${encodeURIComponent(instituteName.trim())}`);
       if (response.data.status === 'success') {
         setHolidayStatus(response.data);
+        console.log('[DEBUG] Holiday status:', response.data);
       }
     } catch (error) {
       console.error('Failed to check holiday status:', error);
@@ -56,10 +57,18 @@ function MarkAttendance() {
       return;
     }
 
-    // Check if today is a holiday before proceeding
-    if (holidayStatus && holidayStatus.is_holiday) {
-      toast.error(`Today is a holiday (${holidayStatus.reason}). Attendance marking is disabled.`);
-      return;
+    // RE-CHECK holiday status before submitting (in case it changed)
+    console.log('[DEBUG] Re-checking holiday status before attendance...');
+    try {
+      const recheckResponse = await axios.get(`${process.env.REACT_APP_API_URL}/check-holiday/${encodeURIComponent(instituteName.trim())}`);
+      
+      if (recheckResponse.data.status === 'success' && recheckResponse.data.is_holiday) {
+        toast.error(`Today is a holiday (${recheckResponse.data.reason}). Attendance marking is disabled.`);
+        setHolidayStatus(recheckResponse.data);
+        return;
+      }
+    } catch (error) {
+      console.error('Re-check failed:', error);
     }
 
     setLoading(true);
@@ -70,7 +79,7 @@ function MarkAttendance() {
       const blob = await fetch(image).then(r => r.blob());
       
       const formData = new FormData();
-      formData.append('institute_name', instituteName);
+      formData.append('institute_name', instituteName.trim());
       formData.append('photo', blob, 'attendance.jpg');
 
       setCurrentStep('Matching facial features...');
@@ -107,14 +116,15 @@ function MarkAttendance() {
         }, 10000);
       } else {
         toast.error(response.data.message);
-      }
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Attendance marking failed');
-    } finally {
-      setLoading(false);
-      if (currentStep !== 'Attendance marked successfully' && currentStep !== 'Attendance marked with warning') {
         setCurrentStep('');
       }
+    } catch (error) {
+      const errorMsg = error.response?.data?.message || 'Attendance marking failed';
+      toast.error(errorMsg);
+      console.error('[ERROR] Attendance failed:', errorMsg);
+      setCurrentStep('');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -266,7 +276,7 @@ function MarkAttendance() {
           <label>Institute Name</label>
           <input
             type="text"
-            placeholder="Enter your institute name"
+            placeholder="Enter your institute name (exact match required)"
             value={instituteName}
             onChange={(e) => setInstituteName(e.target.value)}
             required
