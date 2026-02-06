@@ -1747,6 +1747,161 @@ textarea,
 }
 
 /* ========================================
+   DATE EDIT PANEL (NEW)
+   ======================================== */
+
+.date-edit-panel {
+  margin-top: 20px;
+  background: var(--white);
+  border: 2px solid var(--primary-blue);
+  border-radius: 8px;
+  overflow: hidden;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.panel-header {
+  background: linear-gradient(135deg, var(--primary-blue), var(--primary-dark));
+  color: var(--white);
+  padding: 16px;
+}
+
+.panel-date {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.panel-current-status {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.status-badge {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+.panel-body {
+  padding: 20px;
+}
+
+.status-options {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.status-option {
+  background: var(--white);
+  border: 2px solid var(--gray-300);
+  border-radius: 8px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
+}
+
+.status-option:hover:not(:disabled) {
+  border-color: var(--primary-blue);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 86, 210, 0.15);
+}
+
+.status-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.status-option.active {
+  border-width: 3px;
+  font-weight: 600;
+}
+
+.status-option.active.working {
+  border-color: var(--success-green);
+  background: rgba(0, 168, 107, 0.05);
+  color: var(--success-green);
+}
+
+.status-option.active.holiday {
+  border-color: var(--warning-orange);
+  background: rgba(255, 140, 0, 0.05);
+  color: var(--warning-orange);
+}
+
+.option-icon {
+  font-size: 24px;
+}
+
+.option-text {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.panel-actions .btn {
+  flex: 1;
+}
+
+/* Selected Tile Highlight */
+.react-calendar__tile.selected-tile {
+  border: 3px solid var(--primary-blue) !important;
+  box-shadow: 0 0 0 3px rgba(0, 86, 210, 0.2);
+  transform: scale(1.05);
+}
+
+/* Responsive Panel */
+@media (max-width: 768px) {
+  .status-options {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-header {
+    padding: 12px;
+  }
+
+  .panel-date {
+    font-size: 14px;
+  }
+
+  .panel-current-status {
+    font-size: 12px;
+  }
+
+  .panel-body {
+    padding: 16px;
+  }
+
+  .status-option {
+    padding: 12px;
+  }
+}
+
+/* ========================================
    TOAST NOTIFICATIONS
    ======================================== */
 
