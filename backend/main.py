@@ -960,14 +960,22 @@ async def get_holidays(
 async def toggle_holiday(
     institute_id: int = Form(...),
     date: str = Form(...),
-    is_holiday: bool = Form(...),
+    is_holiday: str = Form(...),  # ← CHANGED TO STRING!
     reason: str = Form(None),
     db: Session = Depends(get_db)
 ):
-    """Toggle holiday"""
+    """Toggle holiday - FIXED VERSION"""
     try:
+        print(f"\n[DEBUG] === TOGGLE HOLIDAY ===")
+        print(f"[DEBUG] Received: institute_id={institute_id}, date={date}, is_holiday={is_holiday} (type: {type(is_holiday)}), reason={reason}")
+        
         from datetime import datetime as dt
         date_obj = dt.strptime(date, "%Y-%m-%d").date()
+        
+        # Convert string to boolean properly
+        is_holiday_bool = is_holiday.lower() in ['true', '1', 'yes']
+        
+        print(f"[DEBUG] Converted is_holiday to: {is_holiday_bool} (type: {type(is_holiday_bool)})")
         
         existing = db.query(Holiday).filter(
             Holiday.institute_id == institute_id,
@@ -975,21 +983,31 @@ async def toggle_holiday(
         ).first()
         
         if existing:
-            existing.is_holiday = is_holiday
+            print(f"[DEBUG] Updating existing record ID={existing.id}")
+            existing.is_holiday = is_holiday_bool
             if reason:
                 existing.reason = reason
             message = f"Updated {date}"
         else:
+            print(f"[DEBUG] Creating new record")
             new_holiday = Holiday(
                 institute_id=institute_id,
                 date=date_obj,
-                is_holiday=is_holiday,
+                is_holiday=is_holiday_bool,
                 reason=reason
             )
             db.add(new_holiday)
             message = f"Marked {date}"
         
         db.commit()
+        
+        # Verify it was saved
+        verify = db.query(Holiday).filter(
+            Holiday.institute_id == institute_id,
+            Holiday.date == date_obj
+        ).first()
+        
+        print(f"[DEBUG] ✅ Saved to database: ID={verify.id}, is_holiday={verify.is_holiday}, reason={verify.reason}")
         
         return {
             "status": "success",
@@ -998,6 +1016,9 @@ async def toggle_holiday(
         
     except Exception as e:
         db.rollback()
+        print(f"[ERROR] Toggle holiday failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             "status": "error",
             "message": str(e)
