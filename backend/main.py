@@ -705,7 +705,7 @@ async def check_if_holiday(
     institute_name: str,
     db: Session = Depends(get_db)
 ):
-    """Check if today is a holiday - FIXED VERSION"""
+    """Check if today is a holiday - COMPLETELY FIXED VERSION"""
     try:
         today = date.today()
         day_of_week = today.weekday()
@@ -738,18 +738,20 @@ async def check_if_holiday(
             Holiday.date == today
         ).first()
         
-        # FIXED: Custom override exists
+        # PRIORITY 1: Custom override exists - ALWAYS use this first
         if custom_holiday:
-            print(f"[DEBUG] Custom override found: is_holiday={custom_holiday.is_holiday}, reason={custom_holiday.reason}")
+            print(f"[DEBUG] ✅ Custom override found: is_holiday={custom_holiday.is_holiday}, reason='{custom_holiday.reason}'")
             
-            # If custom says it's a working day (is_holiday=False)
+            # If admin marked it as WORKING DAY (is_holiday=False)
             if not custom_holiday.is_holiday:
-                # Check if it's actually a weekend being overridden
+                # Check if it's a weekend being overridden
                 if day_of_week in [5, 6]:
                     day_name = "Saturday" if day_of_week == 5 else "Sunday"
                     reason = custom_holiday.reason or f"Working Day (Weekend Override: {day_name})"
+                    print(f"[DEBUG] → Weekend overridden as working day")
                 else:
                     reason = custom_holiday.reason or "Working Day"
+                    print(f"[DEBUG] → Custom working day")
                 
                 return {
                     "status": "success",
@@ -759,9 +761,10 @@ async def check_if_holiday(
                     "is_custom": True
                 }
             
-            # If custom says it's a holiday (is_holiday=True)
+            # If admin marked it as HOLIDAY (is_holiday=True)
             else:
                 reason = custom_holiday.reason or "Holiday"
+                print(f"[DEBUG] → Custom holiday: {reason}")
                 return {
                     "status": "success",
                     "is_holiday": True,
@@ -770,10 +773,11 @@ async def check_if_holiday(
                     "is_custom": True
                 }
         
-        # No custom override - check if weekend
+        # PRIORITY 2: No custom override - check default weekend
+        print(f"[DEBUG] No custom override found, checking default calendar")
         if day_of_week in [5, 6]:
             day_name = "Saturday" if day_of_week == 5 else "Sunday"
-            print(f"[DEBUG] Default weekend: {day_name}")
+            print(f"[DEBUG] → Default weekend: {day_name}")
             return {
                 "status": "success",
                 "is_holiday": True,
@@ -782,8 +786,8 @@ async def check_if_holiday(
                 "is_custom": False
             }
         
-        # Regular working day
-        print(f"[DEBUG] Regular working day")
+        # PRIORITY 3: Regular working day
+        print(f"[DEBUG] → Regular working day")
         return {
             "status": "success",
             "is_holiday": False,
@@ -1005,7 +1009,7 @@ async def mark_attendance(
     photo: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """Mark attendance - FIXED VERSION"""
+    """Mark attendance - COMPLETELY FIXED VERSION"""
     try:
         print(f"\n[DEBUG] === ATTENDANCE MARKING ===")
         print(f"[DEBUG] Institute name: '{institute_name}'")
@@ -1026,7 +1030,7 @@ async def mark_attendance(
         
         print(f"[DEBUG] Institute found: ID={institute.id}, Name='{institute.name}'")
         
-        # FIXED: Holiday check
+        # Holiday check with proper priority
         today = date.today()
         day_of_week = today.weekday()
         
@@ -1037,31 +1041,37 @@ async def mark_attendance(
             Holiday.date == today
         ).first()
         
-        # If custom override exists
+        # PRIORITY 1: Check custom override first
         if custom_holiday:
-            print(f"[DEBUG] Custom holiday record found: is_holiday={custom_holiday.is_holiday}")
-            # If it's marked as holiday
+            print(f"[DEBUG] ✅ Custom override found: is_holiday={custom_holiday.is_holiday}")
+            
+            # If marked as HOLIDAY - block attendance
             if custom_holiday.is_holiday:
                 reason = custom_holiday.reason or "Holiday"
-                print(f"[ERROR] Today is a custom holiday: {reason}")
+                print(f"[ERROR] ❌ Attendance blocked - custom holiday: {reason}")
                 return {
                     "status": "error",
                     "message": f"Today is a holiday ({reason}). Attendance marking is disabled."
                 }
             else:
-                # Custom says it's a working day - allow attendance even if weekend
-                print(f"[DEBUG] Custom working day override - allowing attendance")
+                # Marked as WORKING DAY - allow attendance (even if weekend)
+                print(f"[DEBUG] ✅ Custom working day override - allowing attendance")
+                # Continue to face recognition...
+        
+        # PRIORITY 2: No custom override - check default weekend
         else:
-            # No custom record - check default weekend
+            print(f"[DEBUG] No custom override - checking default calendar")
             if day_of_week in [5, 6]:
                 day_name = "Saturday" if day_of_week == 5 else "Sunday"
-                print(f"[ERROR] Today is default weekend: {day_name}")
+                print(f"[ERROR] ❌ Attendance blocked - default weekend: {day_name}")
                 return {
                     "status": "error",
                     "message": f"Today is {day_name}. Attendance marking is disabled."
                 }
+            else:
+                print(f"[DEBUG] ✅ Regular working day - allowing attendance")
         
-        print(f"[DEBUG] Holiday check passed - proceeding with attendance")
+        print(f"[DEBUG] Holiday check passed - proceeding with face recognition")
         
         # Face recognition via ML service
         current_encoding = await extract_face_encoding(contents)
@@ -1120,7 +1130,7 @@ async def mark_attendance(
         db.add(new_attendance)
         db.commit()
         
-        print(f"[DEBUG] Attendance marked successfully: {status}")
+        print(f"[DEBUG] ✅ Attendance marked successfully: {status}")
         
         return {
             "status": "success",
