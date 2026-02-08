@@ -318,35 +318,70 @@ function MarkAttendance() {
         {/* Status Badge Display */}
         {holidayStatus && renderStatusBadge()}
 
-        {/* Only show webcam if status is checked and it's a working day */}
-        {holidayStatus && !holidayStatus.is_holiday && (
-          <div className="form-group">
-            <label>Facial Verification</label>
-            <p className="form-hint">
-              Look directly at the camera for accurate recognition
-            </p>
-            <div className="webcam-container">
-              {!image ? (
-                <Webcam
-                  audio={false}
-                  ref={webcamRef}
-                  screenshotFormat="image/jpeg"
-                  width="100%"
-                  videoConstraints={{
-                    facingMode: "user"
-                  }}
-                />
-              ) : (
-                <img src={image} alt="Verification capture" />
-              )}
-            </div>
+        {/* FIXED: Show webcam immediately, hide with overlay if holiday */}
+        <div className="form-group">
+          <label>Facial Verification</label>
+          <p className="form-hint">
+            Look directly at the camera for accurate recognition
+          </p>
+          
+          {/* Webcam Container - Always visible */}
+          <div className="webcam-container" style={{ position: 'relative' }}>
+            {!image ? (
+              <Webcam
+                audio={false}
+                ref={webcamRef}
+                screenshotFormat="image/jpeg"
+                width="100%"
+                videoConstraints={{
+                  facingMode: "user"
+                }}
+              />
+            ) : (
+              <img src={image} alt="Verification capture" />
+            )}
+            
+            {/* Overlay if holiday (after status check) */}
+            {holidayStatus && holidayStatus.is_holiday && (
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(255, 140, 0, 0.95)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                textAlign: 'center',
+                padding: '20px',
+                borderRadius: '8px'
+              }}>
+                <div style={{ fontSize: '48px', marginBottom: '12px' }}>🎉</div>
+                <div style={{ fontSize: '20px', fontWeight: '600', marginBottom: '8px' }}>
+                  Holiday Today
+                </div>
+                <div style={{ fontSize: '16px', opacity: 0.9 }}>
+                  {holidayStatus.reason}
+                </div>
+                <div style={{ fontSize: '14px', marginTop: '12px', opacity: 0.8 }}>
+                  Attendance marking is disabled
+                </div>
+              </div>
+            )}
+          </div>
+          
+          {/* Controls - Only show if NOT holiday */}
+          {(!holidayStatus || !holidayStatus.is_holiday) && (
             <div className="webcam-controls">
               {!image ? (
                 <button 
                   type="button"
                   onClick={capture}
                   className="btn btn-secondary"
-                  disabled={loading}
+                  disabled={loading || (holidayStatus && holidayStatus.is_holiday)}
                 >
                   📸 Capture for Verification
                 </button>
@@ -370,20 +405,13 @@ function MarkAttendance() {
                 </>
               )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Show message when status not checked */}
+        {/* Show message when status not checked yet */}
         {!holidayStatus && instituteName.trim() && (
           <div className="alert alert-info" style={{ marginTop: '16px' }}>
             <strong>ℹ️ Action Required:</strong> Please click "Check Status" button to verify if today is a working day before marking attendance.
-          </div>
-        )}
-
-        {/* Show message when it's a holiday */}
-        {holidayStatus && holidayStatus.is_holiday && (
-          <div className="alert alert-warning" style={{ marginTop: '16px' }}>
-            <strong>🎉 Holiday Notice:</strong> Attendance marking is disabled for today as it's marked as a holiday ({holidayStatus.reason}).
           </div>
         )}
       </form>

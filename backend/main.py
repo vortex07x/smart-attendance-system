@@ -738,16 +738,37 @@ async def check_if_holiday(
             Holiday.date == today
         ).first()
         
-        # Custom override exists
+        # FIXED: Custom override exists
         if custom_holiday:
-            print(f"[DEBUG] Custom holiday found: is_holiday={custom_holiday.is_holiday}, reason={custom_holiday.reason}")
-            return {
-                "status": "success",
-                "is_holiday": custom_holiday.is_holiday,
-                "reason": custom_holiday.reason or ("Holiday" if custom_holiday.is_holiday else "Working Day"),
-                "date": today.isoformat(),
-                "is_custom": True
-            }
+            print(f"[DEBUG] Custom override found: is_holiday={custom_holiday.is_holiday}, reason={custom_holiday.reason}")
+            
+            # If custom says it's a working day (is_holiday=False)
+            if not custom_holiday.is_holiday:
+                # Check if it's actually a weekend being overridden
+                if day_of_week in [5, 6]:
+                    day_name = "Saturday" if day_of_week == 5 else "Sunday"
+                    reason = custom_holiday.reason or f"Working Day (Weekend Override: {day_name})"
+                else:
+                    reason = custom_holiday.reason or "Working Day"
+                
+                return {
+                    "status": "success",
+                    "is_holiday": False,
+                    "reason": reason,
+                    "date": today.isoformat(),
+                    "is_custom": True
+                }
+            
+            # If custom says it's a holiday (is_holiday=True)
+            else:
+                reason = custom_holiday.reason or "Holiday"
+                return {
+                    "status": "success",
+                    "is_holiday": True,
+                    "reason": reason,
+                    "date": today.isoformat(),
+                    "is_custom": True
+                }
         
         # No custom override - check if weekend
         if day_of_week in [5, 6]:
@@ -1005,7 +1026,7 @@ async def mark_attendance(
         
         print(f"[DEBUG] Institute found: ID={institute.id}, Name='{institute.name}'")
         
-        # Holiday check
+        # FIXED: Holiday check
         today = date.today()
         day_of_week = today.weekday()
         
@@ -1016,8 +1037,10 @@ async def mark_attendance(
             Holiday.date == today
         ).first()
         
+        # If custom override exists
         if custom_holiday:
-            print(f"[DEBUG] Custom holiday record: is_holiday={custom_holiday.is_holiday}, reason={custom_holiday.reason}")
+            print(f"[DEBUG] Custom holiday record found: is_holiday={custom_holiday.is_holiday}")
+            # If it's marked as holiday
             if custom_holiday.is_holiday:
                 reason = custom_holiday.reason or "Holiday"
                 print(f"[ERROR] Today is a custom holiday: {reason}")
@@ -1025,6 +1048,9 @@ async def mark_attendance(
                     "status": "error",
                     "message": f"Today is a holiday ({reason}). Attendance marking is disabled."
                 }
+            else:
+                # Custom says it's a working day - allow attendance even if weekend
+                print(f"[DEBUG] Custom working day override - allowing attendance")
         else:
             # No custom record - check default weekend
             if day_of_week in [5, 6]:
