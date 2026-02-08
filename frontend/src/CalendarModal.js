@@ -32,8 +32,16 @@ function CalendarModal({ isOpen, onClose, adminData }) {
     }
   };
 
+  // ✅ FIXED: Timezone-safe date formatting function
+  const formatDateToString = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const isDateHoliday = (date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = formatDateToString(date); // ✅ FIXED: Use local timezone
     const dayOfWeek = date.getDay();
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
@@ -61,8 +69,11 @@ function CalendarModal({ isOpen, onClose, adminData }) {
   const handleDateClick = (date) => {
     if (!isAdmin || loading) return;
 
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = formatDateToString(date); // ✅ FIXED: Use local timezone
     const dateInfo = isDateHoliday(date);
+    
+    console.log('[DEBUG] Date clicked:', date);
+    console.log('[DEBUG] Formatted date string:', dateStr);
     
     setSelectedDate(date);
     
@@ -88,8 +99,13 @@ function CalendarModal({ isOpen, onClose, adminData }) {
     setMessage('');
 
     try {
-      const dateStr = selectedDate.toISOString().split('T')[0];
+      const dateStr = formatDateToString(selectedDate); // ✅ FIXED: Use local timezone
       const isHoliday = selectedStatus === 'holiday';
+
+      console.log('[DEBUG] Sending to backend:');
+      console.log('[DEBUG] - Date string:', dateStr);
+      console.log('[DEBUG] - Is holiday:', isHoliday);
+      console.log('[DEBUG] - Reason:', reason);
 
       const formData = new FormData();
       formData.append('institute_id', adminData.institute_id);
