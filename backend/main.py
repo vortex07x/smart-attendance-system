@@ -98,7 +98,17 @@ async def extract_face_encoding(image_bytes: bytes) -> str:
         })
         
         if result["status"] == "error":
-            raise Exception(result["message"])
+            message = result.get("message", "Face detection failed")
+            # Propagate specific errors clearly so the frontend can show them
+            raise Exception(message)
+        
+        # Check if ML service reports multiple faces
+        face_count = result.get("face_count", 1)
+        if face_count > 1:
+            raise Exception(
+                f"Multiple faces detected ({face_count}). "
+                "Please ensure only ONE person is in front of the camera."
+            )
         
         return result["face_encoding"]
         
@@ -106,7 +116,7 @@ async def extract_face_encoding(image_bytes: bytes) -> str:
         raise
     except Exception as e:
         print(f"[ERROR] Face extraction failed: {str(e)}")
-        raise Exception(f"Face detection failed: {str(e)}")
+        raise Exception(f"{str(e)}")
 
 async def compare_faces(encoding1_str: str, encoding2_str: str, threshold: float = 0.6) -> tuple:
     """Compare two face encodings via ML service"""
@@ -1030,7 +1040,7 @@ async def mark_attendance(
     photo: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """Mark attendance - COMPLETELY FIXED VERSION"""
+    """Mark attendance"""
     try:
         print(f"\n[DEBUG] === ATTENDANCE MARKING ===")
         print(f"[DEBUG] Institute name: '{institute_name}'")
@@ -1051,7 +1061,7 @@ async def mark_attendance(
         
         print(f"[DEBUG] Institute found: ID={institute.id}, Name='{institute.name}'")
         
-        # Holiday check with proper priority
+        # Holiday check
         today = date.today()
         day_of_week = today.weekday()
         
@@ -1062,40 +1072,72 @@ async def mark_attendance(
             Holiday.date == today
         ).first()
         
-        # PRIORITY 1: Check custom override first
         if custom_holiday:
-            print(f"[DEBUG] ✅ Custom override found: is_holiday={custom_holiday.is_holiday}")
-            
-            # If marked as HOLIDAY - block attendance
+            print(f"[DEBUG] Custom override found: is_holiday={custom_holiday.is_holiday}")
             if custom_holiday.is_holiday:
                 reason = custom_holiday.reason or "Holiday"
-                print(f"[ERROR] ❌ Attendance blocked - custom holiday: {reason}")
                 return {
                     "status": "error",
                     "message": f"Today is a holiday ({reason}). Attendance marking is disabled."
                 }
-            else:
-                # Marked as WORKING DAY - allow attendance (even if weekend)
-                print(f"[DEBUG] ✅ Custom working day override - allowing attendance")
-                # Continue to face recognition...
-        
-        # PRIORITY 2: No custom override - check default weekend
         else:
-            print(f"[DEBUG] No custom override - checking default calendar")
             if day_of_week in [5, 6]:
                 day_name = "Saturday" if day_of_week == 5 else "Sunday"
-                print(f"[ERROR] ❌ Attendance blocked - default weekend: {day_name}")
                 return {
                     "status": "error",
                     "message": f"Today is {day_name}. Attendance marking is disabled."
                 }
+        
+        print(f"[DEBUG] Holiday check passed - running liveness detection")
+
+        # ── LIVENESS DETECTION ──────────────────────────────────────────────
+        # Rejects flat photos / printed images shown to the camera.
+        # The ML service must expose a /check-liveness endpoint that returns:
+        #   { "status": "success", "is_live": true/false, "score": 0.0-1.0 }
+        # If your ML service does not have this endpoint yet, see the note below.
+        try:
+            image_base64 = base64.b64encode(contents).decode('utf-8')
+            liveness_result = await call_ml_service("/check-liveness", {
+                "image_base64": image_base64
+            })
+            
+            if liveness_result.get("status") == "success":
+                is_live = liveness_result.get("is_live", True)
+                liveness_score = liveness_result.get("score", 1.0)
+                print(f"[DEBUG] Liveness: is_live={is_live}, score={liveness_score:.2f}")
+                
+                if not is_live:
+                    return {
+                        "status": "error",
+                        "message": (
+                            "Liveness check failed! A photo or screen was detected. "
+                            "Please use a live face for attendance."
+                        )
+                    }
             else:
-                print(f"[DEBUG] ✅ Regular working day - allowing attendance")
-        
-        print(f"[DEBUG] Holiday check passed - proceeding with face recognition")
-        
-        # Face recognition via ML service
-        current_encoding = await extract_face_encoding(contents)
+                # If liveness endpoint returns an error, log but don't block
+                # Remove this fallback once your ML service supports liveness
+                print(f"[WARNING] Liveness check returned error - skipping: {liveness_result.get('message')}")
+                
+        except HTTPException as e:
+            if e.status_code in [503, 504]:
+                # ML service itself is down - block to be safe
+                raise
+            # Endpoint not found (404) or not yet implemented - skip liveness
+            print(f"[WARNING] Liveness endpoint not available - skipping liveness check")
+
+        # ── FACE RECOGNITION ────────────────────────────────────────────────
+        print(f"[DEBUG] Running face recognition")
+        try:
+            current_encoding = await extract_face_encoding(contents)
+        except Exception as face_error:
+            error_msg = str(face_error)
+            print(f"[ERROR] Face extraction failed: {error_msg}")
+            # Return the specific error message (multiple faces, no face, etc.)
+            return {
+                "status": "error",
+                "message": error_msg
+            }
         
         students = db.query(Student).filter(Student.institute_id == institute.id).all()
         
@@ -1132,13 +1174,12 @@ async def mark_attendance(
                 }
             }
         
-        # Dress code check via ML service
+        # Dress code check
         dress_codes = db.query(DressCode).filter(DressCode.institute_id == institute.id).all()
         dress_code_compliant, dress_code_details = await verify_dress_code(contents, dress_codes, db)
         
         status = "Present" if dress_code_compliant else "Present - Dress Code Violation"
         
-        # Mark attendance
         new_attendance = Attendance(
             student_id=matched_student.id,
             date=today,
@@ -1151,7 +1192,7 @@ async def mark_attendance(
         db.add(new_attendance)
         db.commit()
         
-        print(f"[DEBUG] ✅ Attendance marked successfully: {status}")
+        print(f"[DEBUG] Attendance marked: {status}")
         
         return {
             "status": "success",
