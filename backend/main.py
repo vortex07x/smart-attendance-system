@@ -396,16 +396,34 @@ async def register_student(
     try:
         print(f"\n[DEBUG] === STUDENT REGISTRATION START ===")
         print(f"[DEBUG] Name: {name}, Roll: {roll_number}")
-        
+
         contents = await photo.read()
-        
+
+        # ── FACE COVERED CHECK AT REGISTRATION ──────────────────────────────
+        try:
+            image_base64 = base64.b64encode(contents).decode('utf-8')
+            face_covered_result = await call_ml_service("/check-face-covered", {
+                "image_base64": image_base64
+            })
+            if face_covered_result.get("status") == "success":
+                if face_covered_result.get("is_covered", False):
+                    return {
+                        "status": "error",
+                        "message": (
+                            "Face is covered in the registration photo! "
+                            "Please remove any mask or obstruction and retake."
+                        )
+                    }
+        except Exception:
+            print(f"[WARNING] Face covered check skipped during registration")
+
         institute = db.query(Institute).filter(Institute.name == institute_name).first()
         if not institute:
             institute = Institute(name=institute_name)
             db.add(institute)
             db.commit()
             db.refresh(institute)
-        
+
         existing = db.query(Student).filter(
             Student.roll_number == roll_number,
             Student.institute_id == institute.id
@@ -415,10 +433,9 @@ async def register_student(
                 "status": "error",
                 "message": f"Student with roll number {roll_number} already exists!"
             }
-        
-        # Call ML service for face encoding
+
         face_encoding = await extract_face_encoding(contents)
-        
+
         new_student = Student(
             name=name,
             roll_number=roll_number,
@@ -426,13 +443,13 @@ async def register_student(
             institute_id=institute.id,
             face_encoding=face_encoding
         )
-        
+
         db.add(new_student)
         db.commit()
         db.refresh(new_student)
-        
+
         print(f"[DEBUG] Student registered successfully!")
-        
+
         return {
             "status": "success",
             "message": "Student registered successfully!",
@@ -1044,34 +1061,32 @@ async def mark_attendance(
     try:
         print(f"\n[DEBUG] === ATTENDANCE MARKING ===")
         print(f"[DEBUG] Institute name: '{institute_name}'")
-        
+
         contents = await photo.read()
-        
-        # Find institute (case-insensitive)
+
         institute = db.query(Institute).filter(
             Institute.name.ilike(institute_name.strip())
         ).first()
-        
+
         if not institute:
             print(f"[ERROR] Institute '{institute_name}' not found!")
             return {
                 "status": "error",
                 "message": f"Institute '{institute_name}' not found!"
             }
-        
+
         print(f"[DEBUG] Institute found: ID={institute.id}, Name='{institute.name}'")
-        
-        # Holiday check
+
         today = date.today()
         day_of_week = today.weekday()
-        
+
         print(f"[DEBUG] Checking holiday for: {today} ({['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][day_of_week]})")
-        
+
         custom_holiday = db.query(Holiday).filter(
             Holiday.institute_id == institute.id,
             Holiday.date == today
         ).first()
-        
+
         if custom_holiday:
             print(f"[DEBUG] Custom override found: is_holiday={custom_holiday.is_holiday}")
             if custom_holiday.is_holiday:
@@ -1087,25 +1102,21 @@ async def mark_attendance(
                     "status": "error",
                     "message": f"Today is {day_name}. Attendance marking is disabled."
                 }
-        
+
         print(f"[DEBUG] Holiday check passed - running liveness detection")
 
         # ── LIVENESS DETECTION ──────────────────────────────────────────────
-        # Rejects flat photos / printed images shown to the camera.
-        # The ML service must expose a /check-liveness endpoint that returns:
-        #   { "status": "success", "is_live": true/false, "score": 0.0-1.0 }
-        # If your ML service does not have this endpoint yet, see the note below.
         try:
             image_base64 = base64.b64encode(contents).decode('utf-8')
             liveness_result = await call_ml_service("/check-liveness", {
                 "image_base64": image_base64
             })
-            
+
             if liveness_result.get("status") == "success":
                 is_live = liveness_result.get("is_live", True)
                 liveness_score = liveness_result.get("score", 1.0)
                 print(f"[DEBUG] Liveness: is_live={is_live}, score={liveness_score:.2f}")
-                
+
                 if not is_live:
                     return {
                         "status": "error",
@@ -1115,16 +1126,72 @@ async def mark_attendance(
                         )
                     }
             else:
-                # If liveness endpoint returns an error, log but don't block
-                # Remove this fallback once your ML service supports liveness
                 print(f"[WARNING] Liveness check returned error - skipping: {liveness_result.get('message')}")
-                
+
         except HTTPException as e:
             if e.status_code in [503, 504]:
-                # ML service itself is down - block to be safe
                 raise
-            # Endpoint not found (404) or not yet implemented - skip liveness
             print(f"[WARNING] Liveness endpoint not available - skipping liveness check")
+
+        # ── FACE COVERED / MASKED DETECTION ─────────────────────────────────
+        # Call ML service to check if face is covered (mask, scarf, hands, etc.)
+        try:
+            image_base64 = base64.b64encode(contents).decode('utf-8')
+            face_covered_result = await call_ml_service("/check-face-covered", {
+                "image_base64": image_base64
+            })
+
+            if face_covered_result.get("status") == "success":
+                is_covered = face_covered_result.get("is_covered", False)
+                print(f"[DEBUG] Face covered check: is_covered={is_covered}")
+
+                if is_covered:
+                    return {
+                        "status": "error",
+                        "message": (
+                            "Face is covered or masked! Please remove any mask, "
+                            "scarf, or obstruction and try again."
+                        )
+                    }
+            else:
+                print(f"[WARNING] Face covered check returned error - skipping: {face_covered_result.get('message')}")
+
+        except HTTPException as e:
+            if e.status_code in [503, 504]:
+                raise
+            print(f"[WARNING] Face covered endpoint not available - skipping check")
+
+        # ── MOBILE PROXY / SCREEN DETECTION ─────────────────────────────────
+        # Detects if someone is holding up a phone/screen showing another person's face.
+        # Works alongside liveness but specifically targets screen artifacts
+        # (moire patterns, screen glare, pixel grid).
+        try:
+            image_base64 = base64.b64encode(contents).decode('utf-8')
+            screen_result = await call_ml_service("/check-screen-proxy", {
+                "image_base64": image_base64
+            })
+
+            if screen_result.get("status") == "success":
+                is_screen = screen_result.get("is_screen", False)
+                confidence = screen_result.get("confidence", 0.0)
+                print(f"[DEBUG] Screen proxy check: is_screen={is_screen}, confidence={confidence:.2f}")
+
+                if is_screen:
+                    return {
+                        "status": "error",
+                        "message": (
+                            "Mobile proxy attendance detected! A screen or device "
+                            "was detected instead of a live face. "
+                            "Please appear in person for attendance."
+                        )
+                    }
+            else:
+                print(f"[WARNING] Screen proxy check returned error - skipping: {screen_result.get('message')}")
+
+        except HTTPException as e:
+            if e.status_code in [503, 504]:
+                raise
+            print(f"[WARNING] Screen proxy endpoint not available - skipping check")
 
         # ── FACE RECOGNITION ────────────────────────────────────────────────
         print(f"[DEBUG] Running face recognition")
@@ -1133,53 +1200,56 @@ async def mark_attendance(
         except Exception as face_error:
             error_msg = str(face_error)
             print(f"[ERROR] Face extraction failed: {error_msg}")
-            # Return the specific error message (multiple faces, no face, etc.)
             return {
                 "status": "error",
                 "message": error_msg
             }
-        
+
         students = db.query(Student).filter(Student.institute_id == institute.id).all()
-        
+
         matched_student = None
         best_match_distance = 999
-        
+
         for student in students:
             is_match, distance = await compare_faces(student.face_encoding, current_encoding)
-            
             if is_match and distance < best_match_distance:
                 matched_student = student
                 best_match_distance = distance
-        
+
         if not matched_student:
             return {
                 "status": "error",
                 "message": "Face not recognized! Please register first."
             }
-        
-        # Check if already marked
+
+        # ── ALREADY MARKED CHECK ─────────────────────────────────────────────
         existing = db.query(Attendance).filter(
             Attendance.student_id == matched_student.id,
             Attendance.date == today
         ).first()
-        
+
         if existing:
             return {
                 "status": "warning",
-                "message": f"Attendance already marked today!",
+                "message": "Attendance already marked today!",
                 "data": {
                     "student": matched_student.name,
                     "roll_number": matched_student.roll_number,
+                    "department": matched_student.department,
+                    "status": existing.status,
+                    "match_confidence": None,
+                    "dress_code_compliant": existing.dress_code_match,
+                    "dress_code_details": None,
                     "time": existing.time.strftime("%H:%M:%S")
                 }
             }
-        
-        # Dress code check
+
+        # ── DRESS CODE CHECK ─────────────────────────────────────────────────
         dress_codes = db.query(DressCode).filter(DressCode.institute_id == institute.id).all()
         dress_code_compliant, dress_code_details = await verify_dress_code(contents, dress_codes, db)
-        
+
         status = "Present" if dress_code_compliant else "Present - Dress Code Violation"
-        
+
         new_attendance = Attendance(
             student_id=matched_student.id,
             date=today,
@@ -1188,12 +1258,12 @@ async def mark_attendance(
             face_match=True,
             dress_code_match=dress_code_compliant
         )
-        
+
         db.add(new_attendance)
         db.commit()
-        
+
         print(f"[DEBUG] Attendance marked: {status}")
-        
+
         return {
             "status": "success",
             "message": f"Attendance marked for {matched_student.name}!",
@@ -1207,7 +1277,7 @@ async def mark_attendance(
                 "dress_code_details": dress_code_details
             }
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:

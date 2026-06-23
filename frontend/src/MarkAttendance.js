@@ -5,7 +5,7 @@ import { toast } from 'react-toastify';
 
 function MarkAttendance() {
   const webcamRef = useRef(null);
-  const mountedRef = useRef(true); // prevents state updates after unmount
+  const mountedRef = useRef(true);
 
   const [image, setImage] = useState(null);
   const [instituteName, setInstituteName] = useState('');
@@ -16,12 +16,9 @@ function MarkAttendance() {
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [webcamError, setWebcamError] = useState(null);
 
-  // Track mount state to avoid setState on unmounted component (causes blank screen)
   useEffect(() => {
     mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
+    return () => { mountedRef.current = false; };
   }, []);
 
   const safeSet = useCallback((setter) => (...args) => {
@@ -33,15 +30,12 @@ function MarkAttendance() {
       toast.error('Please enter your institute name first!');
       return;
     }
-
     safeSet(setCheckingStatus)(true);
     try {
       const response = await axios.get(
         `${process.env.REACT_APP_API_URL}/check-holiday/${encodeURIComponent(instituteName.trim())}`
       );
-
       if (!mountedRef.current) return;
-
       if (response.data.status === 'success') {
         setHolidayStatus(response.data);
         if (response.data.is_holiday) {
@@ -88,21 +82,12 @@ function MarkAttendance() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!image) {
-      toast.error('Please capture your photo first!');
-      return;
-    }
-
-    if (!instituteName.trim()) {
-      toast.error('Please enter your institute name!');
-      return;
-    }
-
+    if (!image) { toast.error('Please capture your photo first!'); return; }
+    if (!instituteName.trim()) { toast.error('Please enter your institute name!'); return; }
     if (!holidayStatus) {
       toast.error('Please check the status first using the "Check Status" button!');
       return;
     }
-
     if (holidayStatus.is_holiday) {
       toast.error(`Today is a holiday (${holidayStatus.reason}). Cannot mark attendance.`);
       return;
@@ -115,7 +100,6 @@ function MarkAttendance() {
     try {
       safeSet(setCurrentStep)('Preparing verification...');
 
-      // Guard: ensure image is valid before fetching blob
       if (!image || !image.startsWith('data:image')) {
         toast.error('Invalid photo. Please retake your photo.');
         return;
@@ -155,53 +139,41 @@ function MarkAttendance() {
         }, 500);
 
       } else if (status === 'warning') {
-        setCurrentStep('Attendance marked with warning');
+        setCurrentStep('Attendance already marked');
         toast.warning(message);
-        setAttendanceData(data);
+        setAttendanceData(data || {});
         setTimeout(resetForm, 10000);
 
       } else {
-        // status === 'error' from backend — show the exact backend message
-        // This is where "Multiple faces detected", "Liveness check failed",
-        // "Face not recognized", etc. are surfaced clearly to the user.
         setCurrentStep('');
-
         if (message && message.toLowerCase().includes('multiple')) {
           toast.error('⚠️ ' + message, { autoClose: 6000 });
         } else if (message && message.toLowerCase().includes('liveness')) {
           toast.error('🚫 ' + message, { autoClose: 6000 });
         } else if (message && message.toLowerCase().includes('not recognized')) {
           toast.error('❌ ' + message, { autoClose: 5000 });
+        } else if (message && message.toLowerCase().includes('face covered')) {
+          toast.error('😷 ' + message, { autoClose: 6000 });
         } else {
           toast.error(message || 'Attendance marking failed');
         }
-
-        // Reset image so user can retake — do NOT reset whole form
-        // so they don't have to re-enter institute name
         setImage(null);
       }
 
     } catch (error) {
       if (!mountedRef.current) return;
-
-      // Axios HTTP errors (4xx, 5xx) or network failures
       let errorMsg = 'Attendance marking failed. Please try again.';
-
       if (error.response) {
-        // Server responded with error status
         errorMsg = error.response.data?.message
           || error.response.data?.detail
           || `Server error (${error.response.status})`;
       } else if (error.request) {
-        // Request made but no response — network/timeout
         errorMsg = 'Cannot reach the server. Check your internet connection.';
       }
-
       toast.error(errorMsg, { autoClose: 6000 });
       console.error('[ERROR] Attendance failed:', error);
       setCurrentStep('');
-      setImage(null); // allow retake without resetting form
-
+      setImage(null);
     } finally {
       if (mountedRef.current) setLoading(false);
     }
@@ -209,7 +181,6 @@ function MarkAttendance() {
 
   const renderDressCodeResults = () => {
     if (!attendanceData || !attendanceData.dress_code_details) return null;
-
     const dressCode = attendanceData.dress_code_details;
 
     if (dressCode.message && dressCode.message.includes('No dress code')) {
@@ -219,7 +190,6 @@ function MarkAttendance() {
         </div>
       );
     }
-
     if (dressCode.error) {
       return (
         <div className="alert alert-warning" style={{ marginTop: '16px' }}>
@@ -230,20 +200,12 @@ function MarkAttendance() {
 
     return (
       <div className="details-card" style={{ marginTop: '16px' }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '16px'
-        }}>
-          <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>
-            Dress Code Verification
-          </h4>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>Dress Code Verification</h4>
           <span className={dressCode.all_items_matched ? 'badge badge-success' : 'badge badge-warning'}>
             {dressCode.all_items_matched ? 'PASSED' : 'VIOLATION'}
           </span>
         </div>
-
         <div className="stats-grid" style={{ marginBottom: '16px' }}>
           <div style={{ padding: '12px', background: 'var(--gray-100)', borderRadius: '6px', textAlign: 'center' }}>
             <div style={{ fontSize: '12px', color: 'var(--gray-700)', marginBottom: '4px' }}>Total Items</div>
@@ -254,28 +216,17 @@ function MarkAttendance() {
             <div style={{ fontSize: '20px', fontWeight: '600', color: 'var(--success-green)' }}>{dressCode.matched_items}</div>
           </div>
         </div>
-
         {dressCode.items && dressCode.items.length > 0 && (
           <div style={{ display: 'grid', gap: '8px' }}>
             {dressCode.items.map((item, index) => (
-              <div
-                key={index}
-                className="detail-row"
-                style={{
-                  padding: '12px',
-                  background: 'var(--white)',
-                  borderRadius: '6px',
-                  border: `1px solid ${item.matched ? 'var(--success-green)' : 'var(--warning-orange)'}`
-                }}
-              >
+              <div key={index} className="detail-row" style={{
+                padding: '12px', background: 'var(--white)', borderRadius: '6px',
+                border: `1px solid ${item.matched ? 'var(--success-green)' : 'var(--warning-orange)'}`
+              }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <span style={{ fontSize: '16px' }}>{item.matched ? '✓' : '✗'}</span>
                   <div>
-                    <div style={{
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      color: item.matched ? 'var(--success-green)' : 'var(--warning-orange)'
-                    }}>
+                    <div style={{ fontSize: '14px', fontWeight: '500', color: item.matched ? 'var(--success-green)' : 'var(--warning-orange)' }}>
                       {item.dress_type}
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--gray-500)' }}>
@@ -294,7 +245,6 @@ function MarkAttendance() {
 
   const renderStatusBadge = () => {
     if (!holidayStatus) return null;
-
     if (holidayStatus.is_holiday) {
       return (
         <div className="status-badge-container holiday-status">
@@ -306,7 +256,6 @@ function MarkAttendance() {
         </div>
       );
     }
-
     return (
       <div className="status-badge-container working-status">
         <span className="status-icon">✓</span>
@@ -333,10 +282,7 @@ function MarkAttendance() {
               type="text"
               placeholder="Enter your institute name"
               value={instituteName}
-              onChange={(e) => {
-                setInstituteName(e.target.value);
-                setHolidayStatus(null);
-              }}
+              onChange={(e) => { setInstituteName(e.target.value); setHolidayStatus(null); }}
               required
               disabled={loading}
               className="institute-input"
@@ -354,9 +300,7 @@ function MarkAttendance() {
               )}
             </button>
           </div>
-          <p className="form-hint">
-            Click "Check Status" to verify if today is a working day
-          </p>
+          <p className="form-hint">Click "Check Status" to verify if today is a working day</p>
         </div>
 
         {holidayStatus && renderStatusBadge()}
@@ -364,23 +308,16 @@ function MarkAttendance() {
         <div className="form-group">
           <label>Facial Verification</label>
           <p className="form-hint">
-            Look directly at the camera. Ensure only <strong>one person</strong> is visible and use a <strong>live face</strong> (not a photo).
+            Look directly at the camera. Ensure only <strong>one person</strong> is visible,
+            face is <strong>uncovered</strong>, and use a <strong>live face</strong> (not a photo).
           </p>
 
           <div className="webcam-container" style={{ position: 'relative' }}>
             {webcamError ? (
-              <div style={{
-                padding: '32px',
-                textAlign: 'center',
-                background: 'var(--gray-100)',
-                borderRadius: '8px',
-                color: 'var(--gray-700)'
-              }}>
+              <div style={{ padding: '32px', textAlign: 'center', background: 'var(--gray-100)', borderRadius: '8px', color: 'var(--gray-700)' }}>
                 <div style={{ fontSize: '32px', marginBottom: '8px' }}>📷</div>
                 <div>Camera access denied or unavailable.</div>
-                <div style={{ fontSize: '13px', marginTop: '8px' }}>
-                  Please allow camera access and reload the page.
-                </div>
+                <div style={{ fontSize: '13px', marginTop: '8px' }}>Please allow camera access and reload the page.</div>
               </div>
             ) : !image ? (
               <Webcam
@@ -389,10 +326,7 @@ function MarkAttendance() {
                 screenshotFormat="image/jpeg"
                 width="100%"
                 videoConstraints={{ facingMode: 'user' }}
-                onUserMediaError={(err) => {
-                  console.error('Webcam error:', err);
-                  setWebcamError(err);
-                }}
+                onUserMediaError={(err) => { console.error('Webcam error:', err); setWebcamError(err); }}
               />
             ) : (
               <img src={image} alt="Verification capture" style={{ width: '100%', borderRadius: '8px' }} />
@@ -400,24 +334,15 @@ function MarkAttendance() {
 
             {holidayStatus && holidayStatus.is_holiday && (
               <div style={{
-                position: 'absolute',
-                top: 0, left: 0, right: 0, bottom: 0,
-                background: 'rgba(255, 140, 0, 0.95)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'white',
-                textAlign: 'center',
-                padding: '20px',
-                borderRadius: '8px'
+                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(255, 140, 0, 0.95)', display: 'flex',
+                flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                color: 'white', textAlign: 'center', padding: '20px', borderRadius: '8px'
               }}>
                 <div style={{ fontSize: '48px', marginBottom: '12px' }}>🎉</div>
                 <div style={{ fontSize: '20px', fontWeight: '600', marginBottom: '8px' }}>Holiday Today</div>
                 <div style={{ fontSize: '16px', opacity: 0.9 }}>{holidayStatus.reason}</div>
-                <div style={{ fontSize: '14px', marginTop: '12px', opacity: 0.8 }}>
-                  Attendance marking is disabled
-                </div>
+                <div style={{ fontSize: '14px', marginTop: '12px', opacity: 0.8 }}>Attendance marking is disabled</div>
               </div>
             )}
           </div>
@@ -425,29 +350,15 @@ function MarkAttendance() {
           {(!holidayStatus || !holidayStatus.is_holiday) && !webcamError && (
             <div className="webcam-controls">
               {!image ? (
-                <button
-                  type="button"
-                  onClick={capture}
-                  className="btn btn-secondary"
-                  disabled={loading}
-                >
+                <button type="button" onClick={capture} className="btn btn-secondary" disabled={loading}>
                   📸 Capture for Verification
                 </button>
               ) : (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => setImage(null)}
-                    className="btn btn-secondary"
-                    disabled={loading}
-                  >
+                  <button type="button" onClick={() => setImage(null)} className="btn btn-secondary" disabled={loading}>
                     🔄 Retake Photo
                   </button>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="btn btn-primary"
-                  >
+                  <button type="submit" disabled={loading} className="btn btn-primary">
                     {loading ? 'Verifying...' : '✓ Mark Attendance'}
                   </button>
                 </>
@@ -496,18 +407,28 @@ function MarkAttendance() {
               <span className="detail-label">Roll Number:</span>
               <span className="detail-value">{attendanceData.roll_number}</span>
             </div>
-            <div className="detail-row">
-              <span className="detail-label">Department:</span>
-              <span className="detail-value">{attendanceData.department}</span>
-            </div>
-            <div className="detail-row">
-              <span className="detail-label">Status:</span>
-              <span className="detail-value">
-                <span className={attendanceData.status.includes('Violation') ? 'badge badge-warning' : 'badge badge-success'}>
-                  {attendanceData.status}
+            {attendanceData.department && (
+              <div className="detail-row">
+                <span className="detail-label">Department:</span>
+                <span className="detail-value">{attendanceData.department}</span>
+              </div>
+            )}
+            {attendanceData.status && (
+              <div className="detail-row">
+                <span className="detail-label">Status:</span>
+                <span className="detail-value">
+                  <span className={attendanceData.status?.includes('Violation') ? 'badge badge-warning' : 'badge badge-success'}>
+                    {attendanceData.status}
+                  </span>
                 </span>
-              </span>
-            </div>
+              </div>
+            )}
+            {attendanceData.time && (
+              <div className="detail-row">
+                <span className="detail-label">Time:</span>
+                <span className="detail-value">{attendanceData.time}</span>
+              </div>
+            )}
             {attendanceData.match_confidence && (
               <div className="detail-row">
                 <span className="detail-label">Face Match:</span>
